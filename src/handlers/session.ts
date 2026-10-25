@@ -171,6 +171,31 @@ export function handleSessionCreated(e: EventOf<"session.created">, ctx: Handler
 /** Emits a `session.title` log event when OpenCode names or renames a session. */
 export function handleSessionRenamed(e: EventOf<"session.renamed">, ctx: HandlerContext) {
   const { sessionID, title } = e.data
+  emitSessionTitle(sessionID, title, e.created, ctx)
+}
+
+/**
+ * Emits a `session.title` log when the title changes through `session.updated`.
+ *
+ * Auto-title generation emits `session.updated` with `info.title` on some
+ * builds and `session.renamed` on others; explicit renames use `session.renamed`.
+ * Handling both, through the one change-detecting emitter, covers every build
+ * without depending on which event a given release chooses.
+ */
+export function handleSessionUpdated(
+  e: { created: number; data: { sessionID: string; info?: { title?: string } } },
+  ctx: HandlerContext
+) {
+  emitSessionTitle(e.data.sessionID, e.data.info?.title ?? null, e.created, ctx)
+}
+
+/** Shared, change-detecting title emitter: one log per observed title change. */
+function emitSessionTitle(
+  sessionID: string,
+  title: string | null,
+  created: number,
+  ctx: HandlerContext
+) {
   const name = title?.trim() || null
   if (!name || ctx.tracing.sessionTitles.get(sessionID) === name) {
     return
@@ -179,7 +204,7 @@ export function handleSessionRenamed(e: EventOf<"session.renamed">, ctx: Handler
   ctx.emitLog({
     severityNumber: SeverityNumber.INFO,
     severityText: "INFO",
-    timestamp: e.created,
+    timestamp: created,
     observedTimestamp: Date.now(),
     body: "session.title",
     attributes: {

@@ -11,6 +11,7 @@ import {
   handleSessionStatus,
   handleRetryScheduled,
   handleSessionRenamed,
+  handleSessionUpdated,
   handleUsageUpdated,
 } from "../../src/handlers/session.ts"
 import { makeCtx, evt, tokens } from "../helpers.ts"
@@ -73,6 +74,32 @@ describe("handleSessionRenamed", () => {
     handleSessionRenamed(renamed(), ctx)
     handleSessionRenamed(renamed("   "), ctx)
     expect(logger.records).toHaveLength(0)
+  })
+})
+
+describe("handleSessionUpdated", () => {
+  const updated = (title?: string) =>
+    evt("session.updated", { sessionID: "ses_1", info: title === undefined ? {} : { title } })
+
+  test("emits a session.title log when info carries a title", () => {
+    const { ctx, logger } = makeCtx()
+    handleSessionUpdated(updated("Latest React features"), ctx)
+    expect(logger.records).toHaveLength(1)
+    expect(logger.records[0]!.attributes?.["session.title"]).toBe("Latest React features")
+  })
+
+  test("ignores missing and blank info titles", () => {
+    const { ctx, logger } = makeCtx()
+    handleSessionUpdated(updated(), ctx)
+    handleSessionUpdated(updated("   "), ctx)
+    expect(logger.records).toHaveLength(0)
+  })
+
+  test("shares the change guard with renames", () => {
+    const { ctx, logger } = makeCtx()
+    handleSessionRenamed(evt("session.renamed", { sessionID: "ses_1", title: "First" }), ctx)
+    handleSessionUpdated(updated("First"), ctx)
+    expect(logger.records).toHaveLength(1)
   })
 })
 

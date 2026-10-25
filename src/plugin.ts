@@ -5,7 +5,7 @@ import { probeEndpoint } from "./probe.ts"
 import { forceFlushOtel } from "./otel.ts"
 import { remoteParentContext } from "./trace-context.ts"
 import { acquireSharedOtel, acquireTracingState, createFlushScheduler, flushSharedOtel, releaseSharedOtel } from "./state.ts"
-import { LEVELS, type HandlerContext, type Level, type OpenCodeContext, type OpenCodeEvent } from "./types.ts"
+import { LEVELS, type HandlerContext, type Level, type OpenCodeContext, type OpenCodeEvent, type SessionUpdatedEvent } from "./types.ts"
 import { consumeEvents, contextForSession, setBoundedMap } from "./util.ts"
 import {
   finalizeSession,
@@ -18,6 +18,7 @@ import {
   handleRetryScheduled,
   handleSessionRenamed,
   handleSessionStatus,
+  handleSessionUpdated,
   handleUsageUpdated,
 } from "./handlers/session.ts"
 import { handleStepEnded, handleStepFailed, handleStepStarted, handleTextEnded } from "./handlers/step.ts"
@@ -144,7 +145,7 @@ export async function setup(ctx: OpenCodeContext): Promise<() => Promise<void>> 
     }
   }
 
-  const dispatch = async (event: OpenCodeEvent): Promise<void> => {
+  const dispatch = async (event: OpenCodeEvent | SessionUpdatedEvent): Promise<void> => {
     if (event.type === "session.created") {
       setBoundedMap(tracing.sessionProjects, event.data.sessionID, event.data.projectID)
       setBoundedMap(tracing.sessionIdentity, event.data.sessionID, {
@@ -167,6 +168,9 @@ export async function setup(ctx: OpenCodeContext): Promise<() => Promise<void>> 
         break
       case "session.renamed":
         handleSessionRenamed(event, eventCtx)
+        break
+      case "session.updated":
+        handleSessionUpdated(event, eventCtx)
         break
       case "session.inbox.enqueued":
         handlePromptEnqueued(event, eventCtx, config.capturePromptInLogs)
