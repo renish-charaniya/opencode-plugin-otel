@@ -16,6 +16,7 @@ import {
   handleSessionCreated,
   handleSessionIdle,
   handleRetryScheduled,
+  handleSessionRenamed,
   handleSessionStatus,
   handleUsageUpdated,
 } from "./handlers/session.ts"
@@ -163,6 +164,9 @@ export async function setup(ctx: OpenCodeContext): Promise<() => Promise<void>> 
         break
       case "session.agent.selected":
         handleAgentSelected(event, eventCtx)
+        break
+      case "session.renamed":
+        handleSessionRenamed(event, eventCtx)
         break
       case "session.inbox.enqueued":
         handlePromptEnqueued(event, eventCtx, config.capturePromptInLogs)

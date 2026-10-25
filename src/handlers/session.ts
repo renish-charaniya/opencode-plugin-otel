@@ -106,6 +106,7 @@ export function handleSessionCreated(e: EventOf<"session.created">, ctx: Handler
   const isSubagent = !!d.parentID
   const agentType: SessionAgentType = isSubagent ? "subagent" : "primary"
   const agent = d.agent ?? "unknown"
+  if (d.title) setBoundedMap(ctx.tracing.sessionTitles, d.sessionID, d.title)
 
   setBoundedMap(ctx.tracing.sessionProjects, d.sessionID, d.projectID)
   setBoundedMap(ctx.tracing.sessionIdentity, d.sessionID, {
@@ -165,6 +166,30 @@ export function handleSessionCreated(e: EventOf<"session.created">, ctx: Handler
     },
   })
   void ctx.log("info", "otel: session.created", { sessionID: d.sessionID, isSubagent })
+}
+
+/** Emits a `session.title` log event when OpenCode names or renames a session. */
+export function handleSessionRenamed(e: EventOf<"session.renamed">, ctx: HandlerContext) {
+  const { sessionID, title } = e.data
+  const name = title?.trim() || null
+  if (!name || ctx.tracing.sessionTitles.get(sessionID) === name) {
+    return
+  }
+  setBoundedMap(ctx.tracing.sessionTitles, sessionID, name)
+  ctx.emitLog({
+    severityNumber: SeverityNumber.INFO,
+    severityText: "INFO",
+    timestamp: e.created,
+    observedTimestamp: Date.now(),
+    body: "session.title",
+    attributes: {
+      "event.name": "session.title",
+      "session.id": sessionID,
+      "session.title": name,
+      ...ctx.commonAttrs,
+    },
+  })
+  void ctx.log("debug", "otel: session.title", { sessionID, title: name })
 }
 
 export function handleAgentSelected(e: EventOf<"session.agent.selected">, ctx: HandlerContext) {

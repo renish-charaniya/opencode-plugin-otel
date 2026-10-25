@@ -10,6 +10,7 @@ import {
   handleSessionIdle,
   handleSessionStatus,
   handleRetryScheduled,
+  handleSessionRenamed,
   handleUsageUpdated,
 } from "../../src/handlers/session.ts"
 import { makeCtx, evt, tokens } from "../helpers.ts"
@@ -34,6 +35,44 @@ describe("handleSessionCreated", () => {
     expect(ctx.tracing.sessionTotals.get("sub_1")!.parentID).toBe("ses_1")
     expect(logger.records[0]!.attributes?.["agent.name"]).toBe("explore")
     expect(logger.records.some((record) => record.body === "subtask_invoked")).toBe(true)
+  })
+})
+
+describe("handleSessionRenamed", () => {
+  const renamed = (title?: string) =>
+    evt("session.renamed", { sessionID: "ses_1", title })
+
+  test("seeds the title when creation already carries one", () => {
+    const { ctx, logger } = makeCtx()
+    handleSessionCreated(evt("session.created", { sessionID: "ses_1", title: "Seeded name" }), ctx)
+    handleSessionRenamed(renamed("Seeded name"), ctx)
+    expect(logger.records.some((record) => record.body === "session.title")).toBe(false)
+  })
+
+  test("emits a session.title log on first title", () => {
+    const { ctx, logger } = makeCtx()
+    handleSessionRenamed(renamed("Choosing ECharts component"), ctx)
+    expect(logger.records).toHaveLength(1)
+    expect(logger.records[0]!.body).toBe("session.title")
+    expect(logger.records[0]!.attributes?.["session.id"]).toBe("ses_1")
+    expect(logger.records[0]!.attributes?.["session.title"]).toBe("Choosing ECharts component")
+  })
+
+  test("skips repeats and emits renames", () => {
+    const { ctx, logger } = makeCtx()
+    handleSessionRenamed(renamed("First name"), ctx)
+    handleSessionRenamed(renamed("First name"), ctx)
+    expect(logger.records).toHaveLength(1)
+    handleSessionRenamed(renamed("Second name"), ctx)
+    expect(logger.records).toHaveLength(2)
+    expect(logger.records[1]!.attributes?.["session.title"]).toBe("Second name")
+  })
+
+  test("ignores missing and blank titles", () => {
+    const { ctx, logger } = makeCtx()
+    handleSessionRenamed(renamed(), ctx)
+    handleSessionRenamed(renamed("   "), ctx)
+    expect(logger.records).toHaveLength(0)
   })
 })
 
