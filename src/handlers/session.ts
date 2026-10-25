@@ -1,6 +1,5 @@
 import { SeverityNumber } from "@opentelemetry/api-logs"
 import { SpanStatusCode } from "@opentelemetry/api"
-import { appendFileSync } from "node:fs"
 import {
   AGENT_NAME,
   INPUT_MIME_TYPE,
@@ -172,11 +171,6 @@ export function handleSessionCreated(e: EventOf<"session.created">, ctx: Handler
 /** Emits a `session.title` log event when OpenCode names or renames a session. */
 export function handleSessionRenamed(e: EventOf<"session.renamed">, ctx: HandlerContext) {
   const { sessionID, title } = e.data
-  try {
-    appendFileSync("/tmp/opencode-events.log", `HANDLER session.renamed ${sessionID} ${JSON.stringify(title)}\n`)
-  } catch {
-    /* debug only */
-  }
   emitSessionTitle(sessionID, title, e.created, ctx)
 }
 
@@ -204,19 +198,9 @@ function emitSessionTitle(
 ) {
   const name = title?.trim() || null
   if (!name || ctx.tracing.sessionTitles.get(sessionID) === name) {
-    try {
-      appendFileSync("/tmp/opencode-events.log", `GUARD-SKIP ${sessionID} name=${JSON.stringify(name)} existing=${JSON.stringify(ctx.tracing.sessionTitles.get(sessionID))}\n`)
-    } catch {
-      /* debug only */
-    }
     return
   }
   setBoundedMap(ctx.tracing.sessionTitles, sessionID, name)
-  try {
-    appendFileSync("/tmp/opencode-events.log", `EMIT ${sessionID} ${name}\n`)
-  } catch {
-    /* debug only */
-  }
   ctx.emitLog({
     severityNumber: SeverityNumber.INFO,
     severityText: "INFO",

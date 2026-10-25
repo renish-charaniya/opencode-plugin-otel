@@ -137,5 +137,12 @@ export function acquireTracingState(): TracingState {
     }
     g[TRACING_KEY] = state
   }
+  /*
+   * Backfill fields added after earlier plugin versions, so a hot-reloaded
+   * plugin sharing this process with an older instance still finds every map
+   * it expects. Without this, a reload against a cached state whose version
+   * predates `sessionTitles` crashes handlers on `sessionTitles.get`.
+   */
+  state.sessionTitles ??= new Map()
   return state
 }
