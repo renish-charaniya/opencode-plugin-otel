@@ -1,4 +1,5 @@
 import { ROOT_CONTEXT } from "@opentelemetry/api"
+import { appendFileSync } from "node:fs"
 import pkg from "../package.json" with { type: "json" }
 import { loadConfig, parseAttributePairs, resolveHelperPath, resolveLogLevel, type OtelPluginOptions } from "./config.ts"
 import { probeEndpoint } from "./probe.ts"
@@ -146,6 +147,16 @@ export async function setup(ctx: OpenCodeContext): Promise<() => Promise<void>> 
   }
 
   const dispatch = async (event: OpenCodeEvent | SessionUpdatedEvent): Promise<void> => {
+    // TEMP-DEBUG: record every observed event type + data shape to a file,
+    // so the rename-path event name can be read back without a terminal.
+    try {
+      appendFileSync(
+        "/tmp/opencode-events.log",
+        `${Date.now()} ${event.type} ${JSON.stringify((event as { data?: unknown }).data)}\n`,
+      )
+    } catch {
+      /* debug only */
+    }
     if (event.type === "session.created") {
       setBoundedMap(tracing.sessionProjects, event.data.sessionID, event.data.projectID)
       setBoundedMap(tracing.sessionIdentity, event.data.sessionID, {
