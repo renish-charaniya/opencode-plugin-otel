@@ -1,4 +1,5 @@
 import { ROOT_CONTEXT } from "@opentelemetry/api"
+import { appendFileSync } from "node:fs"
 import pkg from "../package.json" with { type: "json" }
 import { loadConfig, parseAttributePairs, resolveHelperPath, resolveLogLevel, type OtelPluginOptions } from "./config.ts"
 import { probeEndpoint } from "./probe.ts"
@@ -146,6 +147,12 @@ export async function setup(ctx: OpenCodeContext): Promise<() => Promise<void>> 
   }
 
   const dispatch = async (event: OpenCodeEvent | SessionUpdatedEvent): Promise<void> => {
+    // TEMP-DEBUG: capture session/title events to observe the AUTO-title path.
+    if (event.type.includes("session") || event.type.includes("title")) {
+      try {
+        appendFileSync("/tmp/opencode-events.log", `${Date.now()} ${event.type} ${JSON.stringify((event as { data?: unknown }).data)}\n`)
+      } catch { /* debug */ }
+    }
     if (event.type === "session.created") {
       setBoundedMap(tracing.sessionProjects, event.data.sessionID, event.data.projectID)
       setBoundedMap(tracing.sessionIdentity, event.data.sessionID, {
