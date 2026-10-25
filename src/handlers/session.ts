@@ -217,8 +217,34 @@ function emitSessionTitle(
   void ctx.log("debug", "otel: session.title", { sessionID, title: name })
 }
 
-export function handleAgentSelected(e: EventOf<"session.agent.selected">, ctx: HandlerContext) {
-  const { sessionID, agent } = e.data
+/**
+ * Re-emits a session's known title, bypassing the change guard.
+ *
+ * Auto-title is decided moments after a session is created, often before its
+ * first spans reach the backend; a title log emitted then stamps nothing, and
+ * the spans that follow stay untitled. Re-emitting at turn end — after those
+ * spans have landed — closes the race. Idempotent on the backend (the stamp
+ * is a no-op for spans already carrying the title).
+ */
+export function reemitSessionTitle(sessionID: string, ctx: HandlerContext) {
+  const title = ctx.tracing.sessionTitles.get(sessionID)
+  if (!title) return
+  ctx.emitLog({
+    severityNumber: SeverityNumber.INFO,
+    severityText: "INFO",
+    timestamp: Date.now(),
+    observedTimestamp: Date.now(),
+    body: "session.title",
+    attributes: {
+      "event.name": "session.title",
+      "session.id": sessionID,
+      "session.title": title,
+      ...ctx.commonAttrs,
+    },
+  })
+}
+
+export function handleAgentSelected(e: EventOf<"session.agent.selected">, ctx: HandlerContext) {  const { sessionID, agent } = e.data
   const identity = ctx.tracing.sessionIdentity.get(sessionID)
   if (identity) setBoundedMap(ctx.tracing.sessionIdentity, sessionID, { ...identity, agent })
   const totals = ctx.tracing.sessionTotals.get(sessionID)
