@@ -1,5 +1,4 @@
 import { ROOT_CONTEXT } from "@opentelemetry/api"
-import { appendFileSync } from "node:fs"
 import pkg from "../package.json" with { type: "json" }
 import { loadConfig, parseAttributePairs, resolveHelperPath, resolveLogLevel, type OtelPluginOptions } from "./config.ts"
 import { probeEndpoint } from "./probe.ts"
@@ -116,9 +115,6 @@ export async function setup(ctx: OpenCodeContext): Promise<() => Promise<void>> 
   if (config.disabledMetrics.size > 0) await log("info", "metrics disabled", { disabled: [...config.disabledMetrics] })
   if (config.disabledTraces.size > 0) await log("info", "traces disabled", { disabled: [...config.disabledTraces] })
   if (!config.logsEnabled) await log("info", "OTLP log events disabled")
-  try {
-    appendFileSync("/tmp/opencode-title-debug.log", `SETUP logsEnabled=${config.logsEnabled} protocol=${config.protocol} endpoint=${config.endpoint}\n`)
-  } catch { /* debug */ }
   if (config.capturePromptInLogs) {
     await log("info", "prompt-in-logs capture enabled - full prompt text emitted in the `prompt` attribute of user_prompt log events")
   }

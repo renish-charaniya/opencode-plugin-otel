@@ -1,6 +1,5 @@
 import { SeverityNumber } from "@opentelemetry/api-logs"
 import { SpanStatusCode } from "@opentelemetry/api"
-import { appendFileSync } from "node:fs"
 import {
   AGENT_NAME,
   INPUT_MIME_TYPE,
@@ -197,9 +196,6 @@ function emitSessionTitle(
   created: number,
   ctx: HandlerContext
 ) {
-  try {
-    appendFileSync("/tmp/opencode-title-debug.log", `EMIT-ENTRY titles=${ctx.tracing.sessionTitles instanceof Map ? "Map" : typeof ctx.tracing.sessionTitles} logs=${typeof ctx.emitLog}\n`)
-  } catch { /* debug */ }
   const name = title?.trim() || null
   if (!name || ctx.tracing.sessionTitles.get(sessionID) === name) {
     return
