@@ -293,6 +293,7 @@ export function handleExecutionStarted(e: EventOf<"session.execution.started">, 
   )
   setBoundedMap(ctx.tracing.runSpans, sessionID, span)
   setBoundedMap(ctx.tracing.runSpanContexts, sessionID, span.spanContext())
+  setBoundedMap(ctx.tracing.lastRunContexts, sessionID, span.spanContext())
 }
 
 /** Terminal execution events that end the root run span. */
@@ -343,6 +344,7 @@ export function handleExecutionEnded(
       span.setStatus({ code: SpanStatusCode.OK })
     }
     span.end(e.created)
+    setBoundedMap(ctx.tracing.lastRunContexts, sessionID, span.spanContext())
     ctx.tracing.runSpans.delete(sessionID)
     ctx.tracing.runSpanContexts.delete(sessionID)
   }
@@ -410,11 +412,18 @@ export function handleUsageUpdated(e: EventOf<"session.usage.updated">, ctx: Han
  * idle event does not double count.
  */
 export function finalizeSession(sessionID: string, ctx: HandlerContext) {
-  const totals = ctx.tracing.sessionTotals.get(sessionID)
-  if (!totals) {
-    sweepExecution(sessionID, ctx)
-    return
+  const runSpan = ctx.tracing.runSpans.get(sessionID)
+  if (runSpan) {
+    runSpan.setStatus({ code: SpanStatusCode.OK })
+    runSpan.end()
+    setBoundedMap(ctx.tracing.lastRunContexts, sessionID, runSpan.spanContext())
+    ctx.tracing.runSpans.delete(sessionID)
+    ctx.tracing.runSpanContexts.delete(sessionID)
   }
+  sweepExecution(sessionID, ctx)
+
+  const totals = ctx.tracing.sessionTotals.get(sessionID)
+  if (!totals) return
   const identity = ctx.tracing.sessionIdentity.get(sessionID)
   if (identity) {
     setBoundedMap(ctx.tracing.sessionIdentity, sessionID, {

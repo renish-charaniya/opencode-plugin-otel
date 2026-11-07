@@ -1,5 +1,13 @@
 import { trace, type Context } from "@opentelemetry/api"
+import {
+  AGENT_NAME,
+  OpenInferenceSpanKind,
+  SemanticConventions,
+  SESSION_ID,
+} from "@arizeai/openinference-semantic-conventions"
 import { MAX_PENDING, type HandlerContext, type SessionAgentType, type TracingState } from "./types.ts"
+
+const OPENINFERENCE_SPAN_KIND = SemanticConventions.OPENINFERENCE_SPAN_KIND
 
 const MAX_SEEN_EVENTS = 10_000
 
@@ -123,12 +131,19 @@ export function agentAttrs(agentName: string, agentType: SessionAgentType | "unk
   } as const
 }
 
-/** Resolves the trace context for a run span, falling back to the configured root context. */
+/**
+ * Resolves the trace context for a run span, falling back to the most recent
+ * ended run and then the configured root context.
+ *
+ * The retained context matters for delegation: a child that starts after its
+ * parent's turn has ended still belongs under that parent run, and on the parent
+ * session's own trace, even though the span is no longer live.
+ */
 export function resolveRunContext(sessionID: string, ctx: HandlerContext): Context {
   const base = ctx.rootContext()
   const span = ctx.tracing.runSpans.get(sessionID)
   if (span) return trace.setSpan(base, span)
-  const spanContext = ctx.tracing.runSpanContexts.get(sessionID)
+  const spanContext = ctx.tracing.runSpanContexts.get(sessionID) ?? ctx.tracing.lastRunContexts.get(sessionID)
   return spanContext ? trace.setSpanContext(base, spanContext) : base
 }
 
@@ -160,7 +175,42 @@ export function resolveSubagentTraceContext(sessionID: string, parentID: string,
     const span = ctx.tracing.toolSpans.get(callID)!
     return trace.setSpan(ctx.rootContext(), span)
   }
-  return resolveRunContext(parentID, ctx)
+  const parentContext = resolveRunContext(parentID, ctx)
+  return trace.getSpanContext(parentContext) ? parentContext : delegationAnchorContext(parentID, ctx)
+}
+
+/**
+ * Returns a context anchored to a short-lived span recorded against the parent
+ * session, creating it once per parent when no parent run is known to this
+ * process (for example a child spawned after a restart).
+ *
+ * The anchor carries `session.id` = parent so structural delegation can still
+ * resolve a child that has no live dispatch span and no retained run context.
+ */
+function delegationAnchorContext(parentID: string, ctx: HandlerContext): Context {
+  const base = ctx.rootContext()
+  const existing = ctx.tracing.delegationAnchors.get(parentID)
+  if (existing) return trace.setSpanContext(base, existing)
+  const { agentName, agentType } = getSessionAgentMeta(parentID, ctx)
+  const span = ctx.tracer.startSpan(
+    `${ctx.tracePrefix}session.delegation`,
+    {
+      startTime: Date.now(),
+      attributes: {
+        [OPENINFERENCE_SPAN_KIND]: OpenInferenceSpanKind.AGENT,
+        [SESSION_ID]: parentID,
+        [AGENT_NAME]: agentName,
+        "agent.type": agentType,
+        "session.delegation": true,
+        ...ctx.commonAttrs,
+      },
+    },
+    base,
+  )
+  const spanContext = span.spanContext()
+  span.end()
+  setBoundedMap(ctx.tracing.delegationAnchors, parentID, spanContext)
+  return trace.setSpanContext(base, spanContext)
 }
 
 /** Resolves the current session-scoped agent name/type, defaulting to `unknown` when unavailable. */

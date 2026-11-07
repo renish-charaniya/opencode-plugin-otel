@@ -273,6 +273,17 @@ describe("handleSessionStatus", () => {
     expect(counters.retry.calls).toHaveLength(1)
   })
 
+  test("idle ends a dangling run span so the session root still exports", () => {
+    const { ctx, tracer } = makeCtx()
+    handleSessionCreated(evt("session.created", { sessionID: "ses_1" }, 100), ctx)
+    handleExecutionStarted(evt("session.execution.started", { sessionID: "ses_1" }, 200), ctx)
+    handleSessionStatus(evt("session.status", { sessionID: "ses_1", status: { type: "idle" } }, 500), ctx)
+    const run = tracer.spans.find((span) => span.name === "opencode.session")!
+    expect(run.ended).toBe(true)
+    expect(ctx.tracing.runSpans.has("ses_1")).toBe(false)
+    expect(ctx.tracing.lastRunContexts.has("ses_1")).toBe(true)
+  })
+
   test("idle records duration and session totals then clears state", () => {
     const { ctx, histograms, logger } = makeCtx()
     handleSessionCreated(evt("session.created", { sessionID: "ses_1" }, 100), ctx)

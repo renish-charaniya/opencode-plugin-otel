@@ -168,6 +168,8 @@ export type TracingState = {
   eventQueue: Promise<void>
   runSpans: Map<string, Span>
   runSpanContexts: Map<string, SpanContext>
+  lastRunContexts: Map<string, SpanContext>
+  delegationAnchors: Map<string, SpanContext>
   stepSpans: Map<string, Span>
   activeStepSpans: Map<string, Span>
   stepSpanContexts: Map<string, SpanContext>

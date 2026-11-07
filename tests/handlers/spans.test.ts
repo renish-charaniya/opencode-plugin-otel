@@ -75,6 +75,43 @@ describe("trace nesting", () => {
     expect(child.parentSpan).toBe(parent)
   })
 
+  test("nests a child under the parent's last run after that run ended", () => {
+    const { ctx, tracer } = makeCtx()
+    handleSessionCreated(evt("session.created", { sessionID: "parent", projectID: "p" }), ctx)
+    handleExecutionStarted(evt("session.execution.started", { sessionID: "parent" }, 100), ctx)
+    handleExecutionEnded(evt("session.execution.succeeded", { sessionID: "parent" }, 200), ctx, { type: "succeeded" })
+    handleSessionCreated(evt("session.created", { sessionID: "child", projectID: "p", parentID: "parent", agent: "explore" }), ctx)
+    handleExecutionStarted(evt("session.execution.started", { sessionID: "child" }, 300), ctx)
+    const parentRun = tracer.spans.find((span) => span.name === "opencode.session" && span.attributes["session.id"] === "parent")!
+    const child = tracer.spans.find((span) => span.name === "opencode.session" && span.attributes["session.id"] === "child")!
+    expect(child.parentSpanContext?.spanId).toBe(parentRun.spanContext().spanId)
+    expect(child.parentSpanContext?.traceId).toBe(parentRun.spanContext().traceId)
+  })
+
+  test("anchors a child to the parent session when no parent run is known", () => {
+    const { ctx, tracer } = makeCtx()
+    handleSessionCreated(evt("session.created", { sessionID: "parent", projectID: "p", agent: "build" }), ctx)
+    handleSessionCreated(evt("session.created", { sessionID: "child", projectID: "p", parentID: "parent", agent: "explore" }), ctx)
+    handleExecutionStarted(evt("session.execution.started", { sessionID: "child" }, 300), ctx)
+    const anchor = tracer.spans.find((span) => span.name === "opencode.session.delegation")!
+    const child = tracer.spans.find((span) => span.name === "opencode.session" && span.attributes["session.id"] === "child")!
+    expect(anchor.attributes["session.id"]).toBe("parent")
+    expect(anchor.ended).toBe(true)
+    expect(child.parentSpanContext?.spanId).toBe(anchor.spanContext().spanId)
+    expect(child.parentSpanContext?.traceId).toBe(anchor.spanContext().traceId)
+    expect(ctx.tracing.delegationAnchors.has("parent")).toBe(true)
+  })
+
+  test("reuses one delegation anchor across sibling children", () => {
+    const { ctx, tracer } = makeCtx()
+    handleSessionCreated(evt("session.created", { sessionID: "parent", projectID: "p" }), ctx)
+    for (const childID of ["child_a", "child_b"]) {
+      handleSessionCreated(evt("session.created", { sessionID: childID, projectID: "p", parentID: "parent", agent: "explore" }), ctx)
+      handleExecutionStarted(evt("session.execution.started", { sessionID: childID }, 300), ctx)
+    }
+    expect(tracer.spans.filter((span) => span.name === "opencode.session.delegation")).toHaveLength(1)
+  })
+
   test("does not reuse an earlier dispatch when the child executes again", () => {
     const { ctx, tracer } = makeCtx()
     handleSessionCreated(evt("session.created", { sessionID: "parent", projectID: "p" }), ctx)

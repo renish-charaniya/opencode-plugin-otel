@@ -140,6 +140,8 @@ export function makeTracingState(): TracingState {
     eventQueue: Promise.resolve(),
     runSpans: new Map(),
     runSpanContexts: new Map(),
+    lastRunContexts: new Map(),
+    delegationAnchors: new Map(),
     stepSpans: new Map(),
     activeStepSpans: new Map(),
     stepSpanContexts: new Map(),

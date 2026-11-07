@@ -111,6 +111,8 @@ export function acquireTracingState(): TracingState {
       eventQueue: Promise.resolve(),
       runSpans: new Map(),
       runSpanContexts: new Map(),
+      lastRunContexts: new Map(),
+      delegationAnchors: new Map(),
       stepSpans: new Map(),
       activeStepSpans: new Map(),
       stepSpanContexts: new Map(),
@@ -144,5 +146,7 @@ export function acquireTracingState(): TracingState {
    * predates `sessionTitles` crashes handlers on `sessionTitles.get`.
    */
   state.sessionTitles ??= new Map()
+  state.lastRunContexts ??= new Map()
+  state.delegationAnchors ??= new Map()
   return state
 }
