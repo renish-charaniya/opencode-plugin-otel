@@ -106,6 +106,7 @@ export function handleSessionCreated(e: EventOf<"session.created">, ctx: Handler
   const isSubagent = !!d.parentID
   const agentType: SessionAgentType = isSubagent ? "subagent" : "primary"
   const agent = d.agent ?? "unknown"
+  if (d.title) setBoundedMap(ctx.tracing.sessionTitles, d.sessionID, d.title)
 
   setBoundedMap(ctx.tracing.sessionProjects, d.sessionID, d.projectID)
   setBoundedMap(ctx.tracing.sessionIdentity, d.sessionID, {
@@ -167,8 +168,83 @@ export function handleSessionCreated(e: EventOf<"session.created">, ctx: Handler
   void ctx.log("info", "otel: session.created", { sessionID: d.sessionID, isSubagent })
 }
 
-export function handleAgentSelected(e: EventOf<"session.agent.selected">, ctx: HandlerContext) {
-  const { sessionID, agent } = e.data
+/** Emits a `session.title` log event when OpenCode names or renames a session. */
+export function handleSessionRenamed(e: EventOf<"session.renamed">, ctx: HandlerContext) {
+  const { sessionID, title } = e.data
+  emitSessionTitle(sessionID, title, e.created, ctx)
+}
+
+/**
+ * Emits a `session.title` log when the title changes through `session.updated`.
+ *
+ * Auto-title generation emits `session.updated` with `info.title` on some
+ * builds and `session.renamed` on others; explicit renames use `session.renamed`.
+ * Handling both, through the one change-detecting emitter, covers every build
+ * without depending on which event a given release chooses.
+ */
+export function handleSessionUpdated(
+  e: { created: number; data: { sessionID: string; info?: { title?: string } } },
+  ctx: HandlerContext
+) {
+  emitSessionTitle(e.data.sessionID, e.data.info?.title ?? null, e.created, ctx)
+}
+
+/** Shared, change-detecting title emitter: one log per observed title change. */
+function emitSessionTitle(
+  sessionID: string,
+  title: string | null,
+  created: number,
+  ctx: HandlerContext
+) {
+  const name = title?.trim() || null
+  if (!name || ctx.tracing.sessionTitles.get(sessionID) === name) {
+    return
+  }
+  setBoundedMap(ctx.tracing.sessionTitles, sessionID, name)
+  ctx.emitLog({
+    severityNumber: SeverityNumber.INFO,
+    severityText: "INFO",
+    timestamp: created,
+    observedTimestamp: Date.now(),
+    body: "session.title",
+    attributes: {
+      "event.name": "session.title",
+      "session.id": sessionID,
+      "session.title": name,
+      ...ctx.commonAttrs,
+    },
+  })
+  void ctx.log("debug", "otel: session.title", { sessionID, title: name })
+}
+
+/**
+ * Re-emits a session's known title, bypassing the change guard.
+ *
+ * Auto-title is decided moments after a session is created, often before its
+ * first spans reach the backend; a title log emitted then stamps nothing, and
+ * the spans that follow stay untitled. Re-emitting at turn end — after those
+ * spans have landed — closes the race. Idempotent on the backend (the stamp
+ * is a no-op for spans already carrying the title).
+ */
+export function reemitSessionTitle(sessionID: string, ctx: HandlerContext) {
+  const title = ctx.tracing.sessionTitles.get(sessionID)
+  if (!title) return
+  ctx.emitLog({
+    severityNumber: SeverityNumber.INFO,
+    severityText: "INFO",
+    timestamp: Date.now(),
+    observedTimestamp: Date.now(),
+    body: "session.title",
+    attributes: {
+      "event.name": "session.title",
+      "session.id": sessionID,
+      "session.title": title,
+      ...ctx.commonAttrs,
+    },
+  })
+}
+
+export function handleAgentSelected(e: EventOf<"session.agent.selected">, ctx: HandlerContext) {  const { sessionID, agent } = e.data
   const identity = ctx.tracing.sessionIdentity.get(sessionID)
   if (identity) setBoundedMap(ctx.tracing.sessionIdentity, sessionID, { ...identity, agent })
   const totals = ctx.tracing.sessionTotals.get(sessionID)
@@ -217,6 +293,7 @@ export function handleExecutionStarted(e: EventOf<"session.execution.started">, 
   )
   setBoundedMap(ctx.tracing.runSpans, sessionID, span)
   setBoundedMap(ctx.tracing.runSpanContexts, sessionID, span.spanContext())
+  setBoundedMap(ctx.tracing.lastRunContexts, sessionID, span.spanContext())
 }
 
 /** Terminal execution events that end the root run span. */
@@ -267,6 +344,7 @@ export function handleExecutionEnded(
       span.setStatus({ code: SpanStatusCode.OK })
     }
     span.end(e.created)
+    setBoundedMap(ctx.tracing.lastRunContexts, sessionID, span.spanContext())
     ctx.tracing.runSpans.delete(sessionID)
     ctx.tracing.runSpanContexts.delete(sessionID)
   }
@@ -334,11 +412,18 @@ export function handleUsageUpdated(e: EventOf<"session.usage.updated">, ctx: Han
  * idle event does not double count.
  */
 export function finalizeSession(sessionID: string, ctx: HandlerContext) {
-  const totals = ctx.tracing.sessionTotals.get(sessionID)
-  if (!totals) {
-    sweepExecution(sessionID, ctx)
-    return
+  const runSpan = ctx.tracing.runSpans.get(sessionID)
+  if (runSpan) {
+    runSpan.setStatus({ code: SpanStatusCode.OK })
+    runSpan.end()
+    setBoundedMap(ctx.tracing.lastRunContexts, sessionID, runSpan.spanContext())
+    ctx.tracing.runSpans.delete(sessionID)
+    ctx.tracing.runSpanContexts.delete(sessionID)
   }
+  sweepExecution(sessionID, ctx)
+
+  const totals = ctx.tracing.sessionTotals.get(sessionID)
+  if (!totals) return
   const identity = ctx.tracing.sessionIdentity.get(sessionID)
   if (identity) {
     setBoundedMap(ctx.tracing.sessionIdentity, sessionID, {

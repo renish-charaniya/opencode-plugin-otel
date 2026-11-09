@@ -10,6 +10,8 @@ import {
   handleSessionIdle,
   handleSessionStatus,
   handleRetryScheduled,
+  handleSessionRenamed,
+  handleSessionUpdated,
   handleUsageUpdated,
 } from "../../src/handlers/session.ts"
 import { makeCtx, evt, tokens } from "../helpers.ts"
@@ -34,6 +36,70 @@ describe("handleSessionCreated", () => {
     expect(ctx.tracing.sessionTotals.get("sub_1")!.parentID).toBe("ses_1")
     expect(logger.records[0]!.attributes?.["agent.name"]).toBe("explore")
     expect(logger.records.some((record) => record.body === "subtask_invoked")).toBe(true)
+  })
+})
+
+describe("handleSessionRenamed", () => {
+  const renamed = (title?: string) =>
+    evt("session.renamed", { sessionID: "ses_1", title })
+
+  test("seeds the title when creation already carries one", () => {
+    const { ctx, logger } = makeCtx()
+    handleSessionCreated(evt("session.created", { sessionID: "ses_1", title: "Seeded name" }), ctx)
+    handleSessionRenamed(renamed("Seeded name"), ctx)
+    expect(logger.records.some((record) => record.body === "session.title")).toBe(false)
+  })
+
+  test("emits a session.title log on first title", () => {
+    const { ctx, logger } = makeCtx()
+    handleSessionRenamed(renamed("Choosing ECharts component"), ctx)
+    expect(logger.records).toHaveLength(1)
+    expect(logger.records[0]!.body).toBe("session.title")
+    expect(logger.records[0]!.attributes?.["session.id"]).toBe("ses_1")
+    expect(logger.records[0]!.attributes?.["session.title"]).toBe("Choosing ECharts component")
+  })
+
+  test("skips repeats and emits renames", () => {
+    const { ctx, logger } = makeCtx()
+    handleSessionRenamed(renamed("First name"), ctx)
+    handleSessionRenamed(renamed("First name"), ctx)
+    expect(logger.records).toHaveLength(1)
+    handleSessionRenamed(renamed("Second name"), ctx)
+    expect(logger.records).toHaveLength(2)
+    expect(logger.records[1]!.attributes?.["session.title"]).toBe("Second name")
+  })
+
+  test("ignores missing and blank titles", () => {
+    const { ctx, logger } = makeCtx()
+    handleSessionRenamed(renamed(), ctx)
+    handleSessionRenamed(renamed("   "), ctx)
+    expect(logger.records).toHaveLength(0)
+  })
+})
+
+describe("handleSessionUpdated", () => {
+  const updated = (title?: string) =>
+    evt("session.updated", { sessionID: "ses_1", info: title === undefined ? {} : { title } })
+
+  test("emits a session.title log when info carries a title", () => {
+    const { ctx, logger } = makeCtx()
+    handleSessionUpdated(updated("Latest React features"), ctx)
+    expect(logger.records).toHaveLength(1)
+    expect(logger.records[0]!.attributes?.["session.title"]).toBe("Latest React features")
+  })
+
+  test("ignores missing and blank info titles", () => {
+    const { ctx, logger } = makeCtx()
+    handleSessionUpdated(updated(), ctx)
+    handleSessionUpdated(updated("   "), ctx)
+    expect(logger.records).toHaveLength(0)
+  })
+
+  test("shares the change guard with renames", () => {
+    const { ctx, logger } = makeCtx()
+    handleSessionRenamed(evt("session.renamed", { sessionID: "ses_1", title: "First" }), ctx)
+    handleSessionUpdated(updated("First"), ctx)
+    expect(logger.records).toHaveLength(1)
   })
 })
 
@@ -205,6 +271,17 @@ describe("handleSessionStatus", () => {
     expect(counters.retry.calls).toHaveLength(0)
     handleRetryScheduled(evt("session.retry.scheduled", { sessionID: "ses_1", assistantMessageID: "m", attempt: 1, at: 2, error: { type: "x", message: "y" } }), ctx)
     expect(counters.retry.calls).toHaveLength(1)
+  })
+
+  test("idle ends a dangling run span so the session root still exports", () => {
+    const { ctx, tracer } = makeCtx()
+    handleSessionCreated(evt("session.created", { sessionID: "ses_1" }, 100), ctx)
+    handleExecutionStarted(evt("session.execution.started", { sessionID: "ses_1" }, 200), ctx)
+    handleSessionStatus(evt("session.status", { sessionID: "ses_1", status: { type: "idle" } }, 500), ctx)
+    const run = tracer.spans.find((span) => span.name === "opencode.session")!
+    expect(run.ended).toBe(true)
+    expect(ctx.tracing.runSpans.has("ses_1")).toBe(false)
+    expect(ctx.tracing.lastRunContexts.has("ses_1")).toBe(true)
   })
 
   test("idle records duration and session totals then clears state", () => {

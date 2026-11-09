@@ -20,6 +20,24 @@ type SubscribeResult = ReturnType<OpenCodeContext["event"]["subscribe"]>
 /** A single OpenCode V2 server event, as yielded by `ctx.event.subscribe()`. */
 export type OpenCodeEvent = SubscribeResult extends AsyncIterable<infer E> ? E : never
 
+/**
+ * `session.updated` as emitted by some server builds for title changes.
+ *
+ * Not in the pinned SDK event union, but present at runtime with a
+ * `{ sessionID, info }` payload (title under `info.title`). Declared locally
+ * so auto-title generation — which emits `session.updated` on some builds and
+ * `session.renamed` on others — is handled alongside the typed rename event.
+ */
+export type SessionUpdatedEvent = {
+  id: string
+  type: "session.updated"
+  created: number
+  data: {
+    sessionID: string
+    info?: { title?: string }
+  }
+}
+
 /** Narrows {@link OpenCodeEvent} to a single `type` discriminant. */
 export type EventOf<T extends OpenCodeEvent["type"]> = Extract<OpenCodeEvent, { type: T }>
 
@@ -150,6 +168,8 @@ export type TracingState = {
   eventQueue: Promise<void>
   runSpans: Map<string, Span>
   runSpanContexts: Map<string, SpanContext>
+  lastRunContexts: Map<string, SpanContext>
+  delegationAnchors: Map<string, SpanContext>
   stepSpans: Map<string, Span>
   activeStepSpans: Map<string, Span>
   stepSpanContexts: Map<string, SpanContext>
@@ -164,6 +184,7 @@ export type TracingState = {
   countedMessages: Set<string>
   sessionProjects: Map<string, string>
   sessionIdentity: Map<string, SessionIdentity>
+  sessionTitles: Map<string, string>
   stepOutputs: Map<string, Map<number, string>>
   pendingPrompts: Map<string, PendingPrompt[]>
   activePrompts: Map<string, PendingPrompt>

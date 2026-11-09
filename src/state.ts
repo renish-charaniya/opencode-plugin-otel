@@ -111,6 +111,8 @@ export function acquireTracingState(): TracingState {
       eventQueue: Promise.resolve(),
       runSpans: new Map(),
       runSpanContexts: new Map(),
+      lastRunContexts: new Map(),
+      delegationAnchors: new Map(),
       stepSpans: new Map(),
       activeStepSpans: new Map(),
       stepSpanContexts: new Map(),
@@ -125,6 +127,7 @@ export function acquireTracingState(): TracingState {
       countedMessages: new Set(),
       sessionProjects: new Map(),
       sessionIdentity: new Map(),
+      sessionTitles: new Map(),
       stepOutputs: new Map(),
       pendingPrompts: new Map(),
       activePrompts: new Map(),
@@ -136,5 +139,14 @@ export function acquireTracingState(): TracingState {
     }
     g[TRACING_KEY] = state
   }
+  /*
+   * Backfill fields added after earlier plugin versions, so a hot-reloaded
+   * plugin sharing this process with an older instance still finds every map
+   * it expects. Without this, a reload against a cached state whose version
+   * predates `sessionTitles` crashes handlers on `sessionTitles.get`.
+   */
+  state.sessionTitles ??= new Map()
+  state.lastRunContexts ??= new Map()
+  state.delegationAnchors ??= new Map()
   return state
 }

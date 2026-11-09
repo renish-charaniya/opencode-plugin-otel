@@ -5,7 +5,7 @@ import { probeEndpoint } from "./probe.ts"
 import { forceFlushOtel } from "./otel.ts"
 import { remoteParentContext } from "./trace-context.ts"
 import { acquireSharedOtel, acquireTracingState, createFlushScheduler, flushSharedOtel, releaseSharedOtel } from "./state.ts"
-import { LEVELS, type HandlerContext, type Level, type OpenCodeContext, type OpenCodeEvent } from "./types.ts"
+import { LEVELS, type HandlerContext, type Level, type OpenCodeContext, type OpenCodeEvent, type SessionUpdatedEvent } from "./types.ts"
 import { consumeEvents, contextForSession, setBoundedMap } from "./util.ts"
 import {
   finalizeSession,
@@ -16,7 +16,10 @@ import {
   handleSessionCreated,
   handleSessionIdle,
   handleRetryScheduled,
+  reemitSessionTitle,
+  handleSessionRenamed,
   handleSessionStatus,
+  handleSessionUpdated,
   handleUsageUpdated,
 } from "./handlers/session.ts"
 import { handleStepEnded, handleStepFailed, handleStepStarted, handleTextEnded } from "./handlers/step.ts"
@@ -143,7 +146,7 @@ export async function setup(ctx: OpenCodeContext): Promise<() => Promise<void>> 
     }
   }
 
-  const dispatch = async (event: OpenCodeEvent): Promise<void> => {
+  const dispatch = async (event: OpenCodeEvent | SessionUpdatedEvent): Promise<void> => {
     if (event.type === "session.created") {
       setBoundedMap(tracing.sessionProjects, event.data.sessionID, event.data.projectID)
       setBoundedMap(tracing.sessionIdentity, event.data.sessionID, {
@@ -164,6 +167,12 @@ export async function setup(ctx: OpenCodeContext): Promise<() => Promise<void>> 
       case "session.agent.selected":
         handleAgentSelected(event, eventCtx)
         break
+      case "session.renamed":
+        handleSessionRenamed(event, eventCtx)
+        break
+      case "session.updated":
+        handleSessionUpdated(event, eventCtx)
+        break
       case "session.inbox.enqueued":
         handlePromptEnqueued(event, eventCtx, config.capturePromptInLogs)
         break
@@ -173,16 +182,19 @@ export async function setup(ctx: OpenCodeContext): Promise<() => Promise<void>> 
       case "session.execution.succeeded":
         handleExecutionEnded(event, eventCtx, { type: "succeeded" })
         finalizeSession(event.data.sessionID, eventCtx)
+        reemitSessionTitle(event.data.sessionID, eventCtx)
         flush.request()
         break
       case "session.execution.failed":
         handleExecutionEnded(event, eventCtx, { type: "failed", error: event.data.error })
         finalizeSession(event.data.sessionID, eventCtx)
+        reemitSessionTitle(event.data.sessionID, eventCtx)
         flush.request()
         break
       case "session.execution.interrupted":
         handleExecutionEnded(event, eventCtx, { type: "interrupted", reason: event.data.reason })
         finalizeSession(event.data.sessionID, eventCtx)
+        reemitSessionTitle(event.data.sessionID, eventCtx)
         flush.request()
         break
       case "session.status":
