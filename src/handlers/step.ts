@@ -95,6 +95,7 @@ export function handleStepStarted(e: EventOf<"session.step.started">, ctx: Handl
     [LLM_PROVIDER]: d.model.providerID,
     "gen_ai.provider.name": genAiProviderName(d.model.providerID),
     [LLM_MODEL_NAME]: d.model.id,
+    "td.message.id": d.assistantMessageID,
     ...(promptText
       ? {
           [INPUT_VALUE]: promptText,
